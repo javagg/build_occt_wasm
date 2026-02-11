@@ -5,8 +5,8 @@ on:
   
 env:
   OCCT_VERSION: "V7_9_3"
-  EMSDK_VERSION: "5.0.1"
-  CACHE_KEY: "occt-wasm-V7_9_3-5.0.1"
+  EMSDK_VERSION: "5.0.0"
+  CACHE_KEY: "occt-wasm-V7_9_3-5.0.0"
 
 jobs:
   build:
