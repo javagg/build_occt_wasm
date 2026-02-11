@@ -27,9 +27,7 @@ jobs:
             cmake \
             ninja-build \
             python3 \
-            python3-pip \
-            libfreetype6-dev \
-            libfontconfig1-dev
+            python3-pip
 
       - name: Cache emsdk
         id: cache-emsdk
@@ -52,31 +50,45 @@ jobs:
           source ~/emsdk/emsdk_env.sh
           emcc -v
 
-      - name: Cache OCCT source
+      - name: Cache sources (OCCT, freetype)
         id: cache-occt-source
         uses: actions/cache@v3
         with:
-          path: ~/occt-source
+          path: |
+            ~/occt-source
+            ~/freetype-source
           key: ${{ env.CACHE_KEY }}-source-${{ env.OCCT_VERSION }}
           restore-keys: |
             ${{ env.CACHE_KEY }}-source-
 
-      - name: Download OCCT source
+      - name: Download sources (OCCT, freetype)
         if: steps.cache-occt-source.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch ${{ env.OCCT_VERSION }} https://github.com/Open-Cascade-SAS/OCCT.git ~/occt-source
-          cd ~/occt-source
+          git clone --depth 1 --branch VER-2-14-1 https://github.com/freetype/freetype.git ~/freetype-source
+          
+      # - name: Cache build
+      #   id: cache-occt-build
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       ~/occt-build
+      #       ~/freetype-build
+      #     key: ${{ env.CACHE_KEY }}-build-${{ hashFiles('**/CMakeLists.txt', '**/occt_toolchain_emscripten.cmake') }}
+      #     restore-keys: |
+      #       ${{ env.CACHE_KEY }}-build-
 
-      - name: Cache OCCT build
-        id: cache-occt-build
-        uses: actions/cache@v3
-        with:
-          path: ~/occt-build
-          key: ${{ env.CACHE_KEY }}-build-${{ hashFiles('**/CMakeLists.txt', '**/occt_toolchain_emscripten.cmake') }}
-          restore-keys: |
-            ${{ env.CACHE_KEY }}-build-
-            
-      - name: Create OCCT custim build file
+      - name: Build OCCT
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          cd ~/freetype-source
+          mkdir build
+          cd build
+          emcmake cmake ..
+          emmake make
+          emmake make install
+          
+      - name: Create OCCT custom build file
         run: |
           cat > ~/occt-source/adm/scripts/wasm_custom.sh << 'EOF'
           export aFreeType="$aSrcRoot/../3rdparty/freetype-2.7.1-wasm"
