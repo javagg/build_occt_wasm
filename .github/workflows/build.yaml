@@ -1,0 +1,129 @@
+name: Build OpenCASCADE WASM
+on:
+  workflow_dispatch:
+env:
+  OCCT_VERSION: "V7_9_3"
+  EMSDK_VERSION: "3.1.48"
+  CACHE_KEY: "occt-wasm-${{ env.OCCT_VERSION }}-${{ env.EMSDK_VERSION }}"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js (for wasm-opt)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            cmake \
+            ninja-build \
+            python3 \
+            python3-pip \
+            libfreetype6-dev \
+            libfontconfig1-dev
+
+      - name: Cache emsdk
+        id: cache-emsdk
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/emsdk
+            ~/.emscripten
+          key: ${{ env.CACHE_KEY }}-emsdk
+          restore-keys: |
+            ${{ env.CACHE_KEY }}-emsdk-
+
+      - name: Install Emscripten SDK
+        if: steps.cache-emsdk.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
+          cd ~/emsdk
+          ./emsdk install ${{ env.EMSDK_VERSION }}
+          ./emsdk activate ${{ env.EMSDK_VERSION }}
+          source ~/emsdk/emsdk_env.sh
+          emcc -v
+
+      - name: Cache OCCT source
+        id: cache-occt-source
+        uses: actions/cache@v3
+        with:
+          path: ~/occt-source
+          key: ${{ env.CACHE_KEY }}-source-${{ env.OCCT_VERSION }}
+          restore-keys: |
+            ${{ env.CACHE_KEY }}-source-
+
+      - name: Download OCCT source
+        if: steps.cache-occt-source.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ env.OCCT_VERSION }} https://github.com/Open-Cascade-SAS/OCCT.git ~/occt-source
+          cd ~/occt-source
+
+      - name: Cache OCCT build
+        id: cache-occt-build
+        uses: actions/cache@v3
+        with:
+          path: ~/occt-build
+          key: ${{ env.CACHE_KEY }}-build-${{ hashFiles('**/CMakeLists.txt', '**/occt_toolchain_emscripten.cmake') }}
+          restore-keys: |
+            ${{ env.CACHE_KEY }}-build-
+            
+      - name: Create OCCT custim build file
+        run: |
+          cat > ~/occt-source/adm/scripts/wasm_custom.sh << 'EOF'
+          export aFreeType="$aSrcRoot/../3rdparty/freetype-2.7.1-wasm"
+          export EMSDK_ROOT="$aSrcRoot/../emsdk"
+          export aBuildRoot=~/occt-build      
+          # Uncomment to customize building steps
+          #export toCMake=1
+          #export toClean=0
+          #export toMake=1
+          #export toInstall=1
+          
+          #export BUILD_ModelingData=ON
+          #export BUILD_ModelingAlgorithms=ON
+          export BUILD_Visualization=OFF
+          export BUILD_ApplicationFramework=OFF
+          #export BUILD_DataExchange=ON
+          EOF
+
+      - name: Build OCCT
+#        if: steps.cache-occt-build.outputs.cache-hit != 'true'
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          cd ~/occt-source/adm/scripts
+          ./wasm_build.sh
+
+      - name: Optimize WASM with wasm-opt
+        run: |
+          npm install -g binaryen
+          wasm-opt -Oz ~/occt-build/occt.wasm -o ~/occt-build/occt_opt.wasm
+
+      - name: Compress with Brotli
+        run: |
+          sudo apt-get install -y brotli
+          brotli -Z ~/occt-build/occt_opt.wasm -o ~/occt-build/occt_opt.wasm.br
+
+      - name: Generate size report
+        run: |
+          echo "=== OCCT WASM Size Report ===" > ~/size-report.txt
+          echo "Uncompressed: $(wc -c < ~/occt-build/occt.wasm) bytes" >> ~/size-report.txt
+          echo "Optimized:    $(wc -c < ~/occt-build/occt_opt.wasm) bytes" >> ~/size-report.txt
+          echo "Brotli:       $(wc -c < ~/occt-build/occt_opt.wasm.br) bytes" >> ~/size-report.txt
+          cat ~/size-report.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: occt-wasm-${{ env.OCCT_VERSION }}
+          path: |
+            ~/occt-build/occt_opt.wasm
+            ~/occt-build/occt_opt.wasm.br
+            ~/size-report.txt
+          retention-days: 30
