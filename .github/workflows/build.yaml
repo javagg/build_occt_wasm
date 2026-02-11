@@ -1,9 +1,11 @@
 name: Build OpenCASCADE WASM
+
 on:
   workflow_dispatch:
+  
 env:
   OCCT_VERSION: "V7_9_3"
-  EMSDK_VERSION: "3.1.48"
+  EMSDK_VERSION: "5.0.1"
   CACHE_KEY: "occt-wasm-${{ env.OCCT_VERSION }}-${{ env.EMSDK_VERSION }}"
 
 jobs:
